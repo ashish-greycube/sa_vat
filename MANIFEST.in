@@ -1,0 +1,18 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include sa_vat *.css
+recursive-include sa_vat *.csv
+recursive-include sa_vat *.html
+recursive-include sa_vat *.ico
+recursive-include sa_vat *.js
+recursive-include sa_vat *.json
+recursive-include sa_vat *.md
+recursive-include sa_vat *.png
+recursive-include sa_vat *.py
+recursive-include sa_vat *.svg
+recursive-include sa_vat *.txt
+recursive-exclude sa_vat *.pyc
