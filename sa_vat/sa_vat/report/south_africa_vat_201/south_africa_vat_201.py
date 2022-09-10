@@ -55,8 +55,6 @@ def execute(filters=None):
         if not d.get("section") in original_order:
             original_order.append(d.get("section"))
 
-    print(original_order)
-
     _data = sorted(
         _data,
         key=lambda x: str(original_order.index(x.get("section"))).rjust(4, "0")
@@ -84,6 +82,8 @@ def execute(filters=None):
             with_totals.append(
                 {"posting_date": frappe.bold(_data[idx + 1].get("new_section"))}
             )
+
+    set_totals(with_totals)
 
     return COLUMNS, with_totals
 
@@ -117,74 +117,13 @@ def get_details(data):
     return {d.parent: d for d in details}
 
 
-def __execute(filters=None):
-    columns, data = _execute(filters)
-
-    if not data:
-        return columns, data
-
-    # print(data)
-
-    capital_goods_vouchers = get_capital_goods_vouchers(data)
-
-    result = []
-    header, capital_data = None, []
-
-    for d in data:
-        posting_date = d.get("posting_date", "")
-        if posting_date and "%" in posting_date:
-            header = posting_date
-
-        if not posting_date:
-            result.append(d)
-            continue
-
-        if d.get("voucher_no"):
-            if not d.get("voucher_no") in capital_goods_vouchers:
-                result.append(d)
-            else:
-                capital_data.append(d)
-        elif "Total" in posting_date:
-            d.update(
-                {"posting_date": posting_date.replace("Total", header + " Total ")}
-            )
-            result.append(d)
-            if capital_data:
-                band_title = frappe.bold(_("Capital Goods ")) + header
-                result.extend(
-                    [
-                        {},
-                        {"posting_date": frappe.bold(_("Capital Goods ")) + header},
-                    ]
-                    + capital_data
-                    + [{"posting_date": band_title + frappe.bold(_(" Total"))}]
-                )
-                capital_data = []
-        else:
-            result.append(d)
-
-        # if "<strong>" in posting_date and not "Total" in posting_date:
-        #     header = posting_date
-        #     if capital_data:
-        #         capital_data.insert(
-        #             0, {"posting_date": frappe.bold(_("Capital Goods ")) + posting_date}
-        #         )
-        #         total_row = {
-        #             "posting_date": "<strong>Total</strong>",
-        #         }
-        #         result.extend(capital_data + [total_row] + [{}])
-        #         capital_data = []
-        #     result.append(d)
-        # elif d.get("voucher_no") in capital_goods_vouchers:
-        #     capital_data.append(d)
-
-    # recalculate totals
+def set_totals(data):
     tax_amount, gross_amount, net_amount = 0, 0, 0
-    for d in result:
+    for d in data:
         if not d.get("posting_date"):
             continue
 
-        if " Total" in d.get("posting_date", ""):
+        if "Total" in d.get("posting_date", ""):
             d.update(
                 {
                     "tax_amount": tax_amount,
@@ -197,74 +136,6 @@ def __execute(filters=None):
             tax_amount += d.get("tax_amount", 0)
             gross_amount += d.get("gross_amount", 0)
             net_amount += d.get("net_amount", 0)
-
-    return COLUMNS, result
-
-
-def get_capital_goods_vouchers(data):
-    vouchers = [d.get("voucher_no") for d in data if d.get("voucher_no")]
-
-    cond = "where t.parent in (%s)" % (", ".join(["%s"] * len(vouchers)))
-
-    filtered = frappe.db.sql(
-        """
-        select t.parent 
-        from
-        (
-            select tpii.parent 
-            from `tabPurchase Invoice Item` tpii 
-            inner join `tabPurchase Invoice` tpi on tpi.name = tpii.parent 
-            and tpi.taxes_and_charges <> '{import_taxes_and_charges}'
-            inner join tabItem ti on ti.item_code = tpii.item_code and ti.is_fixed_asset = 1
-            
-            union all
-            select tsii.parent 
-            from `tabSales Invoice Item` tsii 
-            inner join `tabSales Invoice` tsi on tsi.name = tsii.parent 
-            and tsi.taxes_and_charges <> '{export_taxes_and_charges}'
-            inner join tabItem ti on ti.item_code = tsii.item_code and ti.is_fixed_asset = 1
-        ) t	
-    {cond}""".format(
-            cond=cond,
-            import_taxes_and_charges="Import Zero Rated",
-            export_taxes_and_charges="Export Zero Rated",
-        ),
-        tuple(vouchers),
-    )
-    return [d[0] for d in filtered]
-
-
-def get_zero_rated_vouchers(data):
-    vouchers = [d.get("voucher_no") for d in data if d.get("voucher_no")]
-
-    cond = "where t.parent in (%s)" % (", ".join(["%s"] * len(vouchers)))
-
-    filtered = frappe.db.sql(
-        """
-        select t.parent 
-        from
-        (
-            select tpii.parent 
-            from `tabPurchase Invoice Item` tpii 
-            inner join `tabPurchase Invoice` tpi on tpi.name = tpii.parent 
-            and tpi.taxes_and_charges = '{import_taxes_and_charges}'
-            inner join tabItem ti on ti.item_code = tpii.item_code and ti.is_fixed_asset = 1
-            
-            union all
-            select tsii.parent 
-            from `tabSales Invoice Item` tsii 
-            inner join `tabSales Invoice` tsi on tsi.name = tsii.parent 
-            and tsi.taxes_and_charges = '{export_taxes_and_charges}'
-            inner join tabItem ti on ti.item_code = tsii.item_code and ti.is_fixed_asset = 1
-        ) t	
-    {cond}""".format(
-            cond=cond,
-            import_taxes_and_charges="Import Zero Rated",
-            export_taxes_and_charges="Export Zero Rated",
-        ),
-        tuple(vouchers),
-    )
-    return [d[0] for d in filtered]
 
 
 COLUMNS = [
