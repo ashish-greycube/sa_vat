@@ -26,6 +26,12 @@ frappe.query_reports["South Africa VAT 201"] = {
 			"fieldtype": "Date",
 			"reqd": 1,
 			"default": frappe.datetime.get_today()
+		},
+		{
+			"fieldname": "vat_audit_report",
+			"label": __("Show Original VAT Audit Report"),
+			"fieldtype": "Check",
+			"default": 0
 		}
 	]
 };
