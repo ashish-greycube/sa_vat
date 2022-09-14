@@ -16,7 +16,7 @@ BANDS = [
     "CAPITAL GOODS IMPORTED TOTAL (14A)",
     "OTHER GOODS OR SERVICES PURCHASED TOTAL (15)",
     "OTHER GOODS IMPORTED NOT CAPITAL GOODS TOTAL (15A)",
-    "BAD DEBTS SALES (17)",
+    "BAD DEBTS SALES TOTAL (17)",
 ]
 
 
@@ -70,7 +70,7 @@ with fn as
 )
     select case
 	    when fn.is_bad_debt_cf 
-	    	then 'BAD DEBTS SALES (17)'
+	    	then 'BAD DEBTS SALES TOTAL (17)'
         when fn.voucher_type = 'Sales Invoice'
         and not fn.is_fixed_asset and not fn.is_overseas and not fn.is_zero_rated
                 then 'SALES RATE TOTAL (1)'
@@ -111,6 +111,13 @@ with fn as
     out = []
 
     for band in BANDS:
+        out.extend(
+            [
+                {
+                    "posting_date": band.replace(" TOTAL ", " "),
+                }
+            ]
+        )
         items = list(filter(lambda x: x.band == band, data))
         out.extend(items)
         out.extend(
