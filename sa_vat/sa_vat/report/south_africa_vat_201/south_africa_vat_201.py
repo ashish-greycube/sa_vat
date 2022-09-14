@@ -7,220 +7,167 @@ from erpnext.regional.report.vat_audit_report.vat_audit_report import (
     execute as _execute,
 )
 
+BANDS = [
+    "SALES RATE  TOTAL  (1)",
+    "CAPITAL GOODS SOLD TOTAL (1A)",
+    "ZERO RATED EXCLUDING GOODS EXPORTED TOTAL (2)",
+    "ZERO RATED ONLY EXPORT GOODS TOTAL (2A)",
+    "CAPITAL GOODS AND SERVICES PURCHASED  TOTAL (14)",
+    "CAPITAL GOODS IMPORTED TOTAL (14A)",
+    "OTHER GOODS OR SERVICES PURCHASED TOTAL (15)",
+    "OTHER GOODS IMPORTED NOT CAPITAL GOODS TOTAL (15A)",
+    "BAD DEBTS SALES (17)",
+]
+
 
 def execute(filters=None):
-    columns, data = _execute(filters)
-    if filters.get("vat_audit_report") or not data:
-        return columns, data
+    if filters.get("vat_audit_report"):
+        return _execute(filters)
 
-    _data = []
-
-    details = get_details(data)
-
-    section = ""
-    for idx, d in enumerate(data):
-        # remove blank rows
-        if not d:
-            continue
-        # remove total rows
-        if not d.get("account") and d.get("net_amount"):
-            continue
-        # remove section rows
-        label = d.get("posting_date")
-        if not d.get("net_amount"):
-            if not label == section:
-                section = label
-            continue
-
-        d.update({"section": section})
-        d.update(details.get(d.get("voucher_no"), {}))
-
-        if d.get("is_fixed_asset"):
-            d.update({"new_section": "Capital Goods " + d.get("section")})
-        elif "Export" in d.get("taxes_and_charges"):
-            d.update(
-                {
-                    "new_section": d.get("taxes_and_charges").replace(" - SAV", "")
-                    + " "
-                    + d.get("section")
-                }
-            )
-        else:
-            d.update({"new_section": d.get("section")})
-
-        _data.append(d)
-
-    original_order = []
-    for d in data:
-        if not d.get("section") in original_order:
-            original_order.append(d.get("section"))
-
-    _data = sorted(
-        _data,
-        key=lambda x: str(original_order.index(x.get("section"))).rjust(4, "0")
-        + x.get("section", "")
-        + x.get("new_section", ""),
-    )
-
-    with_totals = []
-
-    for idx, d in enumerate(_data):
-        if not idx:
-            with_totals.append({"posting_date": _data[idx].get("new_section")})
-
-        with_totals.append(d)
-        if idx == len(_data) - 1:
-            with_totals.append(
-                {"posting_date": frappe.bold("Total " + d.get("new_section"))}
-            )
-            with_totals.append({})
-        elif not _data[idx + 1].get("new_section") == d.get("new_section"):
-            with_totals.append(
-                {"posting_date": frappe.bold("Total " + d.get("new_section"))}
-            )
-            with_totals.append({})
-            with_totals.append(
-                {"posting_date": frappe.bold(_data[idx + 1].get("new_section"))}
-            )
-
-    set_totals(with_totals)
-
-    return COLUMNS, with_totals
+    return get_columns(), get_data(filters)
 
 
-def get_details(data):
-    vouchers = [d.get("voucher_no") for d in data if d.get("voucher_no")]
-    details = frappe.db.sql(
+def get_data(filters):
+    data = frappe.db.sql(
         """
-    select *
-    from 
-    (
-        select ci.parent , pi.taxes_and_charges , max(ti.is_fixed_asset) is_fixed_asset
-        from `tabPurchase Invoice Item` ci 
-        inner join `tabPurchase Invoice` pi on pi.name = ci.parent 
-        inner join tabItem ti on ti.item_code = ci.item_code 
-        group by ci.parent, pi.taxes_and_charges 
-        union all
-        select ci.parent , pi.taxes_and_charges , max(ti.is_fixed_asset) is_fixed_asset
-        from `tabSales Invoice Item` ci 
-        inner join `tabSales Invoice` pi on pi.name = ci.parent 
-        inner join tabItem ti on ti.item_code = ci.item_code 
-        group by ci.parent, pi.taxes_and_charges 
-    ) t {cond}
+with fn as
+(
+    select 
+        'Sales Invoice' voucher_type ,tsi.name voucher_no , tsi.posting_date , 
+        'Customer' party_type , tsi.customer party , tsi.taxes_and_charges ,
+        tsi.grand_total , tsi.net_total , tsi.total_taxes_and_charges , 
+        ti.is_fixed_asset , tstact.is_overseas_cf is_overseas ,
+        tstc.rate = 0 is_zero_rated , tsi.write_off_amount ,tsi.debit_to account ,
+        tsi.remarks , tsi.is_bad_debt_cf is_bad_debt_cf  
+    from `tabSales Invoice` tsi 
+    inner join `tabSales Invoice Item` tsii on tsii.parent = tsi.name
+    inner join tabItem ti on ti.name = tsii.item_code
+    inner join `tabSales Taxes and Charges Template` tstact on tstact.name = tsi.taxes_and_charges 
+    inner join (
+        select parent , sum(rate) rate 
+        from `tabSales Taxes and Charges` tstac 
+        group by parent
+    ) tstc on tstc.parent  = tstact.name  
+    {conditions}
+    union all
+    select 
+        'Purchase Invoice' voucher_type ,tsi.name voucher_no , tsi.posting_date , 
+        'Customer' party_type , tsi.supplier party , tsi.taxes_and_charges ,
+        tsi.grand_total , tsi.net_total , tsi.total_taxes_and_charges , 
+        ti.is_fixed_asset , tstact.is_overseas_cf is_overseas ,
+        tstc.rate = 0 is_zero_rated , tsi.write_off_amount ,tsi.credit_to account ,
+        tsi.remarks , 0 is_bad_debt_cf 
+    from `tabPurchase Invoice` tsi 
+    inner join `tabPurchase Invoice Item` tsii on tsii.parent = tsi.name
+    inner join tabItem ti on ti.name = tsii.item_code
+    inner join `tabPurchase Taxes and Charges Template` tstact on tstact.name = tsi.taxes_and_charges 
+    inner join (
+        select parent , sum(rate) rate 
+        from `tabPurchase Taxes and Charges` tstac 
+        group by parent
+    ) tstc on tstc.parent  = tstact.name      
+    {conditions}
+)
+    select case
+	    when fn.is_bad_debt_cf 
+	    	then 'BAD DEBTS SALES (17)'
+        when fn.voucher_type = 'Sales Invoice'
+        and not fn.is_fixed_asset and not fn.is_overseas and not fn.is_zero_rated
+                then 'SALES RATE  TOTAL (1)'
+        when fn.voucher_type = 'Sales Invoice'
+        and fn.is_fixed_asset and not fn.is_overseas and not fn.is_zero_rated
+                then 'CAPITAL GOODS SOLD TOTAL (1A)'
+        when fn.voucher_type = 'Sales Invoice'
+        and not fn.is_fixed_asset and not fn.is_overseas and fn.is_zero_rated
+                then 'ZERO RATED EXCLUDING GOODS EXPORTED TOTAL (2)'
+        when fn.voucher_type = 'Sales Invoice'
+        and fn.is_overseas and fn.is_zero_rated
+                then 'ZERO RATED ONLY EXPORT GOODS TOTAL (2A)'
+        when fn.voucher_type = 'Purchase Invoice'
+        and fn.is_fixed_asset and not fn.is_overseas and not fn.is_zero_rated
+                then 'CAPITAL GOODS AND SERVICES PURCHASED  TOTAL (14)'
+        when fn.voucher_type = 'Purchase Invoice'
+        and fn.is_fixed_asset and fn.is_overseas and not fn.is_zero_rated
+                then 'CAPITAL GOODS IMPORTED TOTAL (14A)'
+        when fn.voucher_type = 'Purchase Invoice'
+        and not fn.is_fixed_asset and not fn.is_overseas and not fn.is_zero_rated
+                then 'OTHER GOODS OR SERVICES PURCHASED TOTAL (15)'
+        when fn.voucher_type = 'Purchase Invoice'
+        and not fn.is_fixed_asset and fn.is_overseas and not fn.is_zero_rated
+                then 'OTHER GOODS IMPORTED NOT CAPITAL GOODS TOTAL (15A)'                
+        else 'Unknown' end band , fn.*
+    from fn
+    order by band , posting_date , voucher_no        
     """.format(
-            cond="where t.parent in (%s)" % (", ".join(["%s"] * len(vouchers)))
+            conditions=get_conditions(filters)
         ),
-        tuple(vouchers),
+        filters,
         as_dict=True,
     )
 
-    return {d.parent: d for d in details}
+    if not data:
+        return []
 
+    out = []
 
-def set_totals(data):
-    tax_amount, gross_amount, net_amount = 0, 0, 0
-    for d in data:
-        if not d.get("posting_date"):
-            continue
-
-        if "Total" in d.get("posting_date", ""):
-            d.update(
+    for band in BANDS:
+        items = list(filter(lambda x: x.band == band, data))
+        out.extend(items)
+        out.extend(
+            [
                 {
-                    "tax_amount": tax_amount,
-                    "gross_amount": gross_amount,
-                    "net_amount": net_amount,
-                }
-            )
-            tax_amount, gross_amount, net_amount = 0, 0, 0
-        else:
-            tax_amount += d.get("tax_amount", 0)
-            gross_amount += d.get("gross_amount", 0)
-            net_amount += d.get("net_amount", 0)
+                    "bold": 1,
+                    "posting_date": band,
+                    "net_total": sum([x.net_total for x in items]),
+                    "grand_total": sum([x.grand_total for x in items]),
+                    "total_taxes_and_charges": sum(
+                        [x.total_taxes_and_charges for x in items]
+                    ),
+                },
+                {},
+            ]
+        )
+
+    return out
 
 
-COLUMNS = [
-    {
-        "fieldname": "section",
-        "label": "section",
-        "fieldtype": "Data",
-        "width": 200,
-    },
-    # {
-    #     "fieldname": "new_section",
-    #     "label": "new_section",
-    #     "fieldtype": "Data",
-    #     "width": 200,
-    # },
-    {
-        "fieldname": "is_fixed_asset",
-        "label": "is_fixed_asset",
-        "fieldtype": "Int",
-        "width": 100,
-    },
-    {
-        "fieldname": "taxes_and_charges",
-        "label": "taxes_and_charges",
-        "fieldtype": "Data",
-        "width": 300,
-    },
-    {
-        "fieldname": "posting_date",
-        "label": "Posting Date",
-        "fieldtype": "Data",
-        "width": 300,
-    },
-    {
-        "fieldname": "account",
-        "label": "Account",
-        "fieldtype": "Link",
-        "options": "Account",
-        "width": 150,
-    },
-    {
-        "fieldname": "voucher_type",
-        "label": "Voucher Type",
-        "fieldtype": "Data",
-        "width": 140,
-        "hidden": 1,
-    },
-    {
-        "fieldname": "voucher_no",
-        "label": "Reference",
-        "fieldtype": "Dynamic Link",
-        "options": "voucher_type",
-        "width": 300,
-    },
-    {
-        "fieldname": "party_type",
-        "label": "Party Type",
-        "fieldtype": "Data",
-        "width": 140,
-        "hidden": 1,
-    },
-    {
-        "fieldname": "party",
-        "label": "Party",
-        "fieldtype": "Dynamic Link",
-        "options": "party_type",
-        "width": 150,
-    },
-    {"fieldname": "remarks", "label": "Details", "fieldtype": "Data", "width": 250},
-    {
-        "fieldname": "net_amount",
-        "label": "Net Amount",
-        "fieldtype": "Currency",
-        "width": 130,
-    },
-    {
-        "fieldname": "tax_amount",
-        "label": "Tax Amount",
-        "fieldtype": "Currency",
-        "width": 130,
-    },
-    {
-        "fieldname": "gross_amount",
-        "label": "Gross Amount",
-        "fieldtype": "Currency",
-        "width": 130,
-    },
-]
+def get_columns():
+    return csv_to_columns(
+        """
+        Posting Date,posting_date,,,400
+        Account,account,Link,Account,180
+        Voucher Type,voucher_type,,,150
+        Reference,voucher_no,Dynamic Link,voucher_type,200
+        Party Type,party_type,,,140
+        Party,party,Dymanic Link,party_type,200
+        Details,remarks,,,180
+        Net Amount,net_total,Currency,,140
+        Tax Amount,total_taxes_and_charges,Currency,140
+        Gross Amount,grand_total,Currency,140
+        is_fixed_asset,is_fixed_asset,,,100
+        is_zero_rated,is_zero_rated,,,100
+        is_overseas,is_overseas,,,100
+        Band,band,,,150        
+        """
+    )
+
+
+def csv_to_columns(csv_str):
+    props = ["label", "fieldname", "fieldtype", "options", "width"]
+    return [
+        zip(props, [x.strip() for x in col.split(",")])
+        for col in csv_str.split("\n")
+        if col.strip()
+    ]
+
+
+def get_conditions(filters):
+    conditions = []
+    if filters.get("from_date"):
+        conditions.append("tsi.posting_date >= %(from_date)s")
+    if filters.get("to_date"):
+        conditions.append("tsi.posting_date <= %(to_date)s")
+    if filters.get("company"):
+        conditions.append("tsi.company = %(company)s")
+
+    return conditions and " where " + " and ".join(conditions) or ""
