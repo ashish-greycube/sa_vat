@@ -8,11 +8,11 @@ from erpnext.regional.report.vat_audit_report.vat_audit_report import (
 )
 
 BANDS = [
-    "SALES RATE  TOTAL  (1)",
+    "SALES RATE TOTAL (1)",
     "CAPITAL GOODS SOLD TOTAL (1A)",
     "ZERO RATED EXCLUDING GOODS EXPORTED TOTAL (2)",
     "ZERO RATED ONLY EXPORT GOODS TOTAL (2A)",
-    "CAPITAL GOODS AND SERVICES PURCHASED  TOTAL (14)",
+    "CAPITAL GOODS AND SERVICES PURCHASED TOTAL (14)",
     "CAPITAL GOODS IMPORTED TOTAL (14A)",
     "OTHER GOODS OR SERVICES PURCHASED TOTAL (15)",
     "OTHER GOODS IMPORTED NOT CAPITAL GOODS TOTAL (15A)",
@@ -73,7 +73,7 @@ with fn as
 	    	then 'BAD DEBTS SALES (17)'
         when fn.voucher_type = 'Sales Invoice'
         and not fn.is_fixed_asset and not fn.is_overseas and not fn.is_zero_rated
-                then 'SALES RATE  TOTAL (1)'
+                then 'SALES RATE TOTAL (1)'
         when fn.voucher_type = 'Sales Invoice'
         and fn.is_fixed_asset and not fn.is_overseas and not fn.is_zero_rated
                 then 'CAPITAL GOODS SOLD TOTAL (1A)'
@@ -85,7 +85,7 @@ with fn as
                 then 'ZERO RATED ONLY EXPORT GOODS TOTAL (2A)'
         when fn.voucher_type = 'Purchase Invoice'
         and fn.is_fixed_asset and not fn.is_overseas and not fn.is_zero_rated
-                then 'CAPITAL GOODS AND SERVICES PURCHASED  TOTAL (14)'
+                then 'CAPITAL GOODS AND SERVICES PURCHASED TOTAL (14)'
         when fn.voucher_type = 'Purchase Invoice'
         and fn.is_fixed_asset and fn.is_overseas and not fn.is_zero_rated
                 then 'CAPITAL GOODS IMPORTED TOTAL (14A)'
