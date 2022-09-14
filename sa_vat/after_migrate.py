@@ -15,6 +15,8 @@ def after_migrate(**args):
                 fieldname="is_bad_debt_cf",
                 label="Is Bad Debt",
                 insert_after="update_billed_amount_in_sales_order",
+                allow_on_submit=1,
+                print_hide=1,
             ),
         ],
         "Purchase Taxes and Charges Template": [
@@ -23,6 +25,7 @@ def after_migrate(**args):
                 fieldname="is_overseas_cf",
                 label="Is Overseas",
                 insert_after="disabled",
+                print_hide=1,
             ),
         ],
         "Sales Taxes and Charges Template": [
@@ -31,6 +34,7 @@ def after_migrate(**args):
                 fieldname="is_overseas_cf",
                 label="Is Overseas",
                 insert_after="disabled",
+                print_hide=1,
             ),
         ],
     }
