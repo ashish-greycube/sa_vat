@@ -146,7 +146,7 @@ def get_columns():
         Voucher Type,voucher_type,,,150
         Reference,voucher_no,Dynamic Link,voucher_type,200
         Party Type,party_type,,,140
-        Party,party,Dymanic Link,party_type,200
+        Party,party,Dynamic Link,party_type,200
         Details,remarks,,,180
         Net Amount,net_total,Currency,,140
         Tax Amount,total_taxes_and_charges,Currency,140
