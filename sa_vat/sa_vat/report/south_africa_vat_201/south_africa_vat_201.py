@@ -169,7 +169,7 @@ def csv_to_columns(csv_str):
 
 
 def get_conditions(filters):
-    conditions = []
+    conditions = ["tsi.docstatus = 1"]
     if filters.get("from_date"):
         conditions.append("tsi.posting_date >= %(from_date)s")
     if filters.get("to_date"):
