@@ -18,22 +18,20 @@ def after_migrate(**args):
                 allow_on_submit=1,
                 print_hide=1,
             ),
-        ],
-        "Purchase Taxes and Charges Template": [
             dict(
                 fieldtype="Check",
                 fieldname="is_overseas_cf",
                 label="Is Overseas",
-                insert_after="disabled",
+                insert_after="is_bad_debt_cf",
                 print_hide=1,
             ),
         ],
-        "Sales Taxes and Charges Template": [
+        "Purchase Invoice": [
             dict(
                 fieldtype="Check",
                 fieldname="is_overseas_cf",
                 label="Is Overseas",
-                insert_after="disabled",
+                insert_after="apply_tds",
                 print_hide=1,
             ),
         ],

@@ -6,6 +6,7 @@ from frappe import _
 from erpnext.regional.report.vat_audit_report.vat_audit_report import (
     execute as _execute,
 )
+from frappe.utils import cint
 
 BANDS = [
     "SALES RATE TOTAL (1)",
@@ -21,83 +22,36 @@ BANDS = [
 
 
 def execute(filters=None):
-    if filters.get("vat_audit_report"):
-        return _execute(filters)
+    columns, data = _execute(filters)
 
-    return get_columns(), get_data(filters)
+    if filters.get("vat_audit_report") or not data:
+        return columns, data
+
+    return get_columns(), get_data(filters, data)
 
 
-def get_data(filters):
-    data = frappe.db.sql(
-        """
-with fn as
-(
+def get_data(filters, data):
+    invoice_details = frappe.db.sql(
+        """ 
     select 
-        'Sales Invoice' voucher_type ,tsi.name voucher_no , tsi.posting_date , 
-        'Customer' party_type , tsi.customer party , tsi.taxes_and_charges ,
-        tsi.grand_total , tsi.net_total , tsi.total_taxes_and_charges , 
-        ti.is_fixed_asset , tstact.is_overseas_cf is_overseas ,
-        tstc.rate = 0 is_zero_rated , tsi.write_off_amount ,tsi.debit_to account ,
-        tsi.remarks , tsi.is_bad_debt_cf is_bad_debt_cf  
+        tsi.name voucher_no , tsi.is_overseas_cf is_overseas , 
+        tsi.is_bad_debt_cf is_bad_debt_cf ,
+        max(ti.is_fixed_asset) is_fixed_asset  
     from `tabSales Invoice` tsi 
     inner join `tabSales Invoice Item` tsii on tsii.parent = tsi.name
     inner join tabItem ti on ti.name = tsii.item_code
-    inner join `tabSales Taxes and Charges Template` tstact on tstact.name = tsi.taxes_and_charges 
-    inner join (
-        select parent , sum(rate) rate 
-        from `tabSales Taxes and Charges` tstac 
-        group by parent
-    ) tstc on tstc.parent  = tstact.name  
     {conditions}
+    group by tsi.name , tsi.is_overseas_cf , tsi.is_bad_debt_cf 
     union all
     select 
-        'Purchase Invoice' voucher_type ,tsi.name voucher_no , tsi.posting_date , 
-        'Customer' party_type , tsi.supplier party , tsi.taxes_and_charges ,
-        tsi.grand_total , tsi.net_total , tsi.total_taxes_and_charges , 
-        ti.is_fixed_asset , tstact.is_overseas_cf is_overseas ,
-        tstc.rate = 0 is_zero_rated , tsi.write_off_amount ,tsi.credit_to account ,
-        tsi.remarks , 0 is_bad_debt_cf 
+        tsi.name voucher_no , tsi.is_overseas_cf is_overseas , 
+        0 is_bad_debt_cf ,
+        max(ti.is_fixed_asset) is_fixed_asset  
     from `tabPurchase Invoice` tsi 
     inner join `tabPurchase Invoice Item` tsii on tsii.parent = tsi.name
     inner join tabItem ti on ti.name = tsii.item_code
-    inner join `tabPurchase Taxes and Charges Template` tstact on tstact.name = tsi.taxes_and_charges 
-    inner join (
-        select parent , sum(rate) rate 
-        from `tabPurchase Taxes and Charges` tstac 
-        group by parent
-    ) tstc on tstc.parent  = tstact.name      
     {conditions}
-)
-    select case
-	    when fn.is_bad_debt_cf 
-	    	then 'BAD DEBTS SALES TOTAL (17)'
-        when fn.voucher_type = 'Sales Invoice'
-        and not fn.is_fixed_asset and not fn.is_overseas and not fn.is_zero_rated
-                then 'SALES RATE TOTAL (1)'
-        when fn.voucher_type = 'Sales Invoice'
-        and fn.is_fixed_asset and not fn.is_overseas and not fn.is_zero_rated
-                then 'CAPITAL GOODS SOLD TOTAL (1A)'
-        when fn.voucher_type = 'Sales Invoice'
-        and not fn.is_fixed_asset and not fn.is_overseas and fn.is_zero_rated
-                then 'ZERO RATED EXCLUDING GOODS EXPORTED TOTAL (2)'
-        when fn.voucher_type = 'Sales Invoice'
-        and fn.is_overseas and fn.is_zero_rated
-                then 'ZERO RATED ONLY EXPORT GOODS TOTAL (2A)'
-        when fn.voucher_type = 'Purchase Invoice'
-        and fn.is_fixed_asset and not fn.is_overseas and not fn.is_zero_rated
-                then 'CAPITAL GOODS AND SERVICES PURCHASED TOTAL (14)'
-        when fn.voucher_type = 'Purchase Invoice'
-        and fn.is_fixed_asset and fn.is_overseas and not fn.is_zero_rated
-                then 'CAPITAL GOODS IMPORTED TOTAL (14A)'
-        when fn.voucher_type = 'Purchase Invoice'
-        and not fn.is_fixed_asset and not fn.is_overseas and not fn.is_zero_rated
-                then 'OTHER GOODS OR SERVICES PURCHASED TOTAL (15)'
-        when fn.voucher_type = 'Purchase Invoice'
-        and not fn.is_fixed_asset and fn.is_overseas and not fn.is_zero_rated
-                then 'OTHER GOODS IMPORTED NOT CAPITAL GOODS TOTAL (15A)'                
-        else 'Unknown' end band , fn.*
-    from fn
-    order by band , posting_date , voucher_no        
+    group by tsi.name , tsi.is_overseas_cf      
     """.format(
             conditions=get_conditions(filters)
         ),
@@ -105,8 +59,32 @@ with fn as
         as_dict=True,
     )
 
-    if not data:
-        return []
+    data = [frappe._dict(d) for d in data if d and d.get("voucher_no")]
+
+    for d in data:
+        d["is_zero_rated"] = not d.tax_amount
+        for detail in filter(lambda x: x.voucher_no == d.voucher_no, invoice_details):
+            d.update(detail)
+            if d.voucher_type == "Sales Invoice":
+                if d.is_bad_debt_cf:
+                    d["band"] = "BAD DEBTS SALES TOTAL (17)"
+                elif not d.is_fixed_asset and not d.is_overseas and not d.is_zero_rated:
+                    d["band"] = "SALES RATE TOTAL (1)"
+                elif d.is_fixed_asset and not d.is_overseas and not d.is_zero_rated:
+                    d["band"] = "CAPITAL GOODS SOLD TOTAL (1A)"
+                elif not d.is_fixed_asset and not d.is_overseas and d.is_zero_rated:
+                    d["band"] = "ZERO RATED EXCLUDING GOODS EXPORTED TOTAL (2)"
+                elif d.is_overseas and d.is_zero_rated:
+                    d["band"] = "ZERO RATED ONLY EXPORT GOODS TOTAL (2A)"
+            elif d.voucher_type == "Purchase Invoice":
+                if d.is_fixed_asset and not d.is_overseas and not d.is_zero_rated:
+                    d["band"] = "CAPITAL GOODS AND SERVICES PURCHASED TOTAL (14)"
+                if d.is_fixed_asset and d.is_overseas and not d.is_zero_rated:
+                    d["band"] = "CAPITAL GOODS IMPORTED TOTAL (14A)"
+                if not d.is_fixed_asset and not d.is_overseas and not d.is_zero_rated:
+                    d["band"] = "OTHER GOODS OR SERVICES PURCHASED TOTAL (15)"
+                if not d.is_fixed_asset and d.is_overseas and not d.is_zero_rated:
+                    d["band"] = "OTHER GOODS IMPORTED NOT CAPITAL GOODS TOTAL (15A)"
 
     out = []
 
@@ -118,6 +96,7 @@ with fn as
                 }
             ]
         )
+
         items = list(filter(lambda x: x.band == band, data))
         out.extend(items)
         out.extend(
@@ -125,15 +104,15 @@ with fn as
                 {
                     "bold": 1,
                     "posting_date": band,
-                    "net_total": sum([x.net_total for x in items]),
-                    "grand_total": sum([x.grand_total for x in items]),
-                    "total_taxes_and_charges": sum(
-                        [x.total_taxes_and_charges for x in items]
-                    ),
+                    "net_amount": sum([x.net_amount for x in items]),
+                    "gross_amount": sum([x.gross_amount for x in items]),
+                    "tax_amount": sum([x.tax_amount for x in items]),
                 },
                 {},
             ]
         )
+
+    out.extend(list(filter(lambda x: not x.band, data)))
 
     return out
 
@@ -141,20 +120,19 @@ with fn as
 def get_columns():
     return csv_to_columns(
         """
-        Posting Date,posting_date,,,400
-        Account,account,Link,Account,180
-        Voucher Type,voucher_type,,,150
+        Posting Date,posting_date,,,300
+        Account,account,Link,Account,130
+        Voucher Type,voucher_type,,,130
         Reference,voucher_no,Dynamic Link,voucher_type,200
         Party Type,party_type,,,140
-        Party,party,Dynamic Link,party_type,200
+        Party,party,Dynamic Link,party_type,130
         Details,remarks,,,180
-        Net Amount,net_total,Currency,,140
-        Tax Amount,total_taxes_and_charges,Currency,140
-        Gross Amount,grand_total,Currency,140
+        Net Amount,net_amount,Currency,,140
+        Tax Amount,tax_amount,Currency,140
+        Gross Amount,gross_amount,Currency,140
         is_fixed_asset,is_fixed_asset,,,100
         is_zero_rated,is_zero_rated,,,100
         is_overseas,is_overseas,,,100
-        Band,band,,,150        
         """
     )
 
