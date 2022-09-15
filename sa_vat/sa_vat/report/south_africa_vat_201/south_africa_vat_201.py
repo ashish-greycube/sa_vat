@@ -20,6 +20,55 @@ BANDS = [
     "BAD DEBTS SALES TOTAL (17)",
 ]
 
+LBANDS = {
+    "SALES RATE TOTAL (1)": lambda x: x.voucher_type == "Sales Invoice"
+    and not x.is_fixed_asset
+    and x.tax_amount
+    and not x.is_overseas_cf
+    and not x.is_bad_debt_cf,
+    "CAPITAL GOODS SOLD TOTAL (1A)": lambda x: x.voucher_type == "Sales Invoice"
+    and x.is_fixed_asset
+    and x.tax_amount
+    and not x.is_overseas_cf
+    and not x.is_bad_debt_cf,
+    "ZERO RATED EXCLUDING GOODS EXPORTED TOTAL (2)": lambda x: x.voucher_type
+    == "Sales Invoice"
+    and not x.is_fixed_asset
+    and not x.tax_amount
+    and not x.is_overseas_cf
+    and not x.is_bad_debt_cf,
+    "ZERO RATED ONLY EXPORT GOODS TOTAL (2A)": lambda x: x.voucher_type
+    == "Sales Invoice"
+    and not x.tax_amount
+    and x.is_overseas_cf
+    and not x.is_bad_debt_cf,
+    "CAPITAL GOODS AND SERVICES PURCHASED TOTAL (14)": lambda x: x.voucher_type
+    == "Purchase Invoice"
+    and x.is_fixed_asset
+    and x.tax_amount
+    and not x.is_overseas_cf
+    and not x.is_bad_debt_cf,
+    "CAPITAL GOODS IMPORTED TOTAL (14A)": lambda x: x.voucher_type == "Purchase Invoice"
+    and x.is_fixed_asset
+    and x.tax_amount
+    and x.is_overseas_cf
+    and not x.is_bad_debt_cf,
+    "OTHER GOODS OR SERVICES PURCHASED TOTAL (15)": lambda x: x.voucher_type
+    == "Purchase Invoice"
+    and not x.is_fixed_asset
+    and x.tax_amount
+    and not x.is_overseas_cf
+    and not x.is_bad_debt_cf,
+    "OTHER GOODS IMPORTED NOT CAPITAL GOODS TOTAL (15A)": lambda x: x.voucher_type
+    == "Purchase Invoice"
+    and not x.is_fixed_asset
+    and x.tax_amount
+    and x.is_overseas_cf
+    and not x.is_bad_debt_cf,
+    "BAD DEBTS SALES TOTAL (17)": lambda x: x.voucher_type == "Sales Invoice"
+    and x.is_bad_debt_cf,
+}
+
 
 def execute(filters=None):
     columns, data = _execute(filters)
@@ -31,7 +80,10 @@ def execute(filters=None):
 
 
 def get_data(filters, data):
-    invoice_details = frappe.db.sql(
+    # exclude blank Header and Total rows
+    data = [frappe._dict(d) for d in data if d and d.get("voucher_no")]
+
+    for d in frappe.db.sql(
         """ 
     select 
         tsi.name voucher_no , tsi.is_overseas_cf is_overseas , 
@@ -57,38 +109,13 @@ def get_data(filters, data):
         ),
         filters,
         as_dict=True,
-    )
-
-    data = [frappe._dict(d) for d in data if d and d.get("voucher_no")]
-
-    for d in data:
-        d["is_zero_rated"] = not d.tax_amount
-        for detail in filter(lambda x: x.voucher_no == d.voucher_no, invoice_details):
-            d.update(detail)
-            if d.voucher_type == "Sales Invoice":
-                if d.is_bad_debt_cf:
-                    d["band"] = "BAD DEBTS SALES TOTAL (17)"
-                elif not d.is_fixed_asset and not d.is_overseas and not d.is_zero_rated:
-                    d["band"] = "SALES RATE TOTAL (1)"
-                elif d.is_fixed_asset and not d.is_overseas and not d.is_zero_rated:
-                    d["band"] = "CAPITAL GOODS SOLD TOTAL (1A)"
-                elif not d.is_fixed_asset and not d.is_overseas and d.is_zero_rated:
-                    d["band"] = "ZERO RATED EXCLUDING GOODS EXPORTED TOTAL (2)"
-                elif d.is_overseas and d.is_zero_rated:
-                    d["band"] = "ZERO RATED ONLY EXPORT GOODS TOTAL (2A)"
-            elif d.voucher_type == "Purchase Invoice":
-                if d.is_fixed_asset and not d.is_overseas and not d.is_zero_rated:
-                    d["band"] = "CAPITAL GOODS AND SERVICES PURCHASED TOTAL (14)"
-                if d.is_fixed_asset and d.is_overseas and not d.is_zero_rated:
-                    d["band"] = "CAPITAL GOODS IMPORTED TOTAL (14A)"
-                if not d.is_fixed_asset and not d.is_overseas and not d.is_zero_rated:
-                    d["band"] = "OTHER GOODS OR SERVICES PURCHASED TOTAL (15)"
-                if not d.is_fixed_asset and d.is_overseas and not d.is_zero_rated:
-                    d["band"] = "OTHER GOODS IMPORTED NOT CAPITAL GOODS TOTAL (15A)"
+    ):
+        for row in filter(lambda x: x.voucher_no == d.voucher_no, data):
+            row.update(d)
 
     out = []
 
-    for band in BANDS:
+    for band in LBANDS:
         out.extend(
             [
                 {
@@ -97,7 +124,12 @@ def get_data(filters, data):
             ]
         )
 
-        items = list(filter(lambda x: x.band == band, data))
+        items = list(filter(LBANDS[band], data))
+
+        # set band to show items without band in the end
+        for i in items:
+            i["band"] = band
+
         out.extend(items)
         out.extend(
             [
@@ -131,7 +163,6 @@ def get_columns():
         Tax Amount,tax_amount,Currency,140
         Gross Amount,gross_amount,Currency,140
         is_fixed_asset,is_fixed_asset,,,100
-        is_zero_rated,is_zero_rated,,,100
         is_overseas,is_overseas,,,100
         """
     )
