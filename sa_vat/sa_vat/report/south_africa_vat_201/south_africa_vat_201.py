@@ -24,46 +24,46 @@ LBANDS = {
     "SALES RATE TOTAL (1)": lambda x: x.voucher_type == "Sales Invoice"
     and not x.is_fixed_asset
     and x.tax_amount
-    and not x.is_overseas_cf
+    and not x.is_overseas
     and not x.is_bad_debt_cf,
     "CAPITAL GOODS SOLD TOTAL (1A)": lambda x: x.voucher_type == "Sales Invoice"
     and x.is_fixed_asset
     and x.tax_amount
-    and not x.is_overseas_cf
+    and not x.is_overseas
     and not x.is_bad_debt_cf,
     "ZERO RATED EXCLUDING GOODS EXPORTED TOTAL (2)": lambda x: x.voucher_type
     == "Sales Invoice"
     and not x.is_fixed_asset
     and not x.tax_amount
-    and not x.is_overseas_cf
+    and not x.is_overseas
     and not x.is_bad_debt_cf,
     "ZERO RATED ONLY EXPORT GOODS TOTAL (2A)": lambda x: x.voucher_type
     == "Sales Invoice"
     and not x.tax_amount
-    and x.is_overseas_cf
+    and x.is_overseas
     and not x.is_bad_debt_cf,
     "CAPITAL GOODS AND SERVICES PURCHASED TOTAL (14)": lambda x: x.voucher_type
     == "Purchase Invoice"
     and x.is_fixed_asset
     and x.tax_amount
-    and not x.is_overseas_cf
+    and not x.is_overseas
     and not x.is_bad_debt_cf,
     "CAPITAL GOODS IMPORTED TOTAL (14A)": lambda x: x.voucher_type == "Purchase Invoice"
     and x.is_fixed_asset
     and x.tax_amount
-    and x.is_overseas_cf
+    and x.is_overseas
     and not x.is_bad_debt_cf,
     "OTHER GOODS OR SERVICES PURCHASED TOTAL (15)": lambda x: x.voucher_type
     == "Purchase Invoice"
     and not x.is_fixed_asset
     and x.tax_amount
-    and not x.is_overseas_cf
+    and not x.is_overseas
     and not x.is_bad_debt_cf,
     "OTHER GOODS IMPORTED NOT CAPITAL GOODS TOTAL (15A)": lambda x: x.voucher_type
     == "Purchase Invoice"
     and not x.is_fixed_asset
     and x.tax_amount
-    and x.is_overseas_cf
+    and x.is_overseas
     and not x.is_bad_debt_cf,
     "BAD DEBTS SALES TOTAL (17)": lambda x: x.voucher_type == "Sales Invoice"
     and x.is_bad_debt_cf,
